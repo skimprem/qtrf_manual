@@ -1,0 +1,214 @@
+\documentclass[12pt,a4paper,draft,final]{extarticle}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[OT1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{makeidx}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{verbatim}
+\usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+
+% Цветовые схемы
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codeblue}{rgb}{0,0,0.8}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{backcolor}{rgb}{0.95,0.95,0.92}  % Светлый фон
+
+% Настройки lstlisting
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolor},  % Фон
+    commentstyle=\color{codegreen},     % Комментарии
+    keywordstyle=\color{codeblue},      % Ключевые слова
+    numberstyle=\tiny\color{codegray},  % Стиль номеров строк
+    stringstyle=\color{red},            % Стиль строковых значений
+    basicstyle=\ttfamily\footnotesize,  % Основной стиль текста
+    breakatwhitespace=false,            % Разрыв по пробелам
+    breaklines=true,                     % Автоматический перенос строк
+    captionpos=b,                        % Подпись снизу (b - bottom)
+    keepspaces=true,                     % Сохранение пробелов
+    numbers=left,                        % Номера строк слева
+    numbersep=5pt,                       % Отступ номеров строк
+    showspaces=false,                    % Не показывать пробелы
+    showstringspaces=false,              % Не показывать пробелы в строках
+    showtabs=false,                       % Не показывать табуляцию
+    tabsize=4                             % Размер табуляции
+}
+
+% Применяем стиль ко всем листингам
+\lstset{style=mystyle}
+
+
+\title{Руководство по использованию матрицы трансформации для пересчета координат в ГИС-приложениях}
+\author{Роман Сермягин}
+\begin{document}
+\maketitle
+
+\section{Введение}
+
+В данном документе описывается использование матрицы (далее~-- <<сетка>>)
+трансформации для пересчета координат в ГИС-приложениях и стандартном
+вводе-выводе командной строки.
+
+Сетка трансформации используется для пересчета геодезических координат из одной
+системы координат в другую. В данном документе описывается использование сетки
+трансформации для пересчета координат из системы координат СК-42 в систему
+координат QazTRF-23.
+
+\section{Описание матрицы трансформации}
+
+Сетка трансформации представляет собой двухполосную регулярную сетку в формате
+GeoTIFF, в узлах которой записаны поправки, представляющие собой сдвиг
+геодезических координат.
+
+Параметры сетки представлены в табл.~\ref{tab:grid_params}.
+
+\begin{table}[ht!]
+    \centering
+    \caption{Параметры сетки трансформации}
+    \label{tab:grid_params}
+    \begin{tabular}{|l|l|}
+        \hline
+        Параметр & Значение \\
+        \hline
+        Формат файла                        & GeoTIFF \\
+        Название файла                      & \verb|QazTRF_2025xxxx_kz.tif| \\
+        Размер ячейки                       & 0.05 \textdegree{} (градусы дуги) \\
+        Размер сетки                        & 817\texttimes{}299 \\
+        Диапазон                            & 46.475\texttimes{}87.325 \textdegree{} в.~д. \\
+                                            & 40.525\texttimes{}55.475 \textdegree{} с.~ш. \\
+        Единицы измерения ячеек             & $''$ (секунды дуги) \\
+        Минимальное/максимальное значение   & 0.109/1.832 $''$ широты \\ 
+                                            & -5.091/-1.248 $''$ долготы \\ 
+        Исходная система координат          & СК-42 \\
+        Целевая система координат           & QazTRF-23 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+На рис.~\ref{fig:grid_shifts} показаны сдвиги геодезических координат между
+системами координат СК-42 и QazTRF-23.
+
+\begin{figure}
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth]{lat}
+        \caption{Полоса 1: сдвиг по широте}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{\textwidth}
+        \includegraphics[width=\textwidth]{lon}
+        \caption{Полоса 2: сдвиг по долготе}
+    \end{subfigure}
+    \caption{Сдвиги геодезических координат}
+    \label{fig:grid_shifts}
+\end{figure}
+
+\section{Использование сетки трансформации в QGIS}
+
+\subsection{Установка сетки в систему Windows}
+
+Для установки сетки трансформации в систему Windows выполните следующие шаги:
+\begin{enumerate}
+
+    \item Убедитесь, что ГИС-приложение QGIS установлено на вашем компьютере и
+    корректно работает. 
+    
+    \item Скопируйте файл сетки \lstinline|qazgrid.tif| трансформации в каталог
+    модуля \verb|proj|. В зависимости от версии QGIS и способа установки, путь к
+    каталогу \verb|proj| может отличаться, например:
+    
+    \lstinline|C:\Program Files\QGIS 3.xx.x\share\proj\|
+
+    или
+
+    \lstinline|C:\OSGeo4W\share\proj\|
+
+\end{enumerate}
+
+\subsection{Настройка пользовательской системы координат}
+
+Для использования сетки трансформации в ГИС-приложении QGIS необходимо создать 
+пользовательскую систему координат. В зависимости от того, в какой системе
+представлены исходные координаты, настройки будут отличаться.
+
+\subsubsection{Географические координаты}
+
+Для настройки пользовательской системы, применяемой для исходных географических
+координат (широта, долгота) необходимо выполнить следующие шаги:
+\begin{enumerate}
+
+    \item Запустите ГИС-приложение QGIS.
+
+    \item Откройте меню <<Настройки>> и выберите пункт <<Пользовательские
+    проекции>> или <<Параметры>>.
+
+    \item В открывшемся окне выберите пункт <<Заданные пользователем СК>> во
+    вкладке <<Системы координат и преобразования>>.
+    
+    \item Нажмите кнопку <<Добавить>>.
+
+    \item Введите название системы координат, например, <<QazTRF-23>>.
+
+    \item В поле <<Параметры>> ведите параметры сетки трансформации в формате
+    PROJ.4. или WKT:
+    \begin{enumerate}
+        
+        \item В формате PROJ.4:
+\begin{lstlisting}
++proj=longlat +ellps=krass +nadgrids=qazgrid.tif +no_defs +type=crs
+\end{lstlisting}
+    
+        \item В формате WKT:
+
+\begin{lstlisting}
+BOUNDCRS[
+    SOURCECRS[
+        GEOGCRS["unknown",
+            DATUM["Unknown based on Krassovsky, 1942 ellipsoid using nadgrids=qazgrid.tif",
+                ELLIPSOID["Krassovsky, 1942",6378245,298.3,
+                    LENGTHUNIT["metre",1,
+                        ID["EPSG",9001]]]],
+            PRIMEM["Greenwich",0,
+                ANGLEUNIT["degree",0.0174532925199433],
+                ID["EPSG",8901]],
+            CS[ellipsoidal,2],
+                AXIS["longitude",east,
+                    ORDER[1],
+                    ANGLEUNIT["degree",0.0174532925199433,
+                        ID["EPSG",9122]]],
+                AXIS["latitude",north,
+                    ORDER[2],
+                    ANGLEUNIT["degree",0.0174532925199433,
+                        ID["EPSG",9122]]]]],
+    TARGETCRS[
+        GEOGCRS["WGS 84",
+            DATUM["World Geodetic System 1984",
+                ELLIPSOID["WGS 84",6378137,298.257223563,
+                    LENGTHUNIT["metre",1]]],
+            PRIMEM["Greenwich",0,
+                ANGLEUNIT["degree",0.0174532925199433]],
+            CS[ellipsoidal,2],
+                AXIS["latitude",north,
+                    ORDER[1],
+                    ANGLEUNIT["degree",0.0174532925199433]],
+                AXIS["longitude",east,
+                    ORDER[2],
+                    ANGLEUNIT["degree",0.0174532925199433]],
+            ID["EPSG",4326]]],
+    ABRIDGEDTRANSFORMATION["unknown to WGS84",
+        METHOD["NTv2",
+            ID["EPSG",9615]],
+        PARAMETERFILE["Latitude and longitude difference file","qazgrid.tif",
+            ID["EPSG",8656]]]]
+\end{lstlisting}
+    
+    \end{enumerate}
+
+\end{enumerate}
+
+\end{document}

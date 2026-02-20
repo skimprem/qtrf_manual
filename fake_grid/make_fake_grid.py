@@ -118,7 +118,7 @@ def create_netcdf_grids(df, inc):
 
     return out_dlon, out_dlat, out_zero
 
-def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cutline_path=None):
+def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cutline_path=None, geotiff_path=None):
     """
     Create a binary NTv2 format file from NetCDF grids using GDAL.
     
@@ -133,9 +133,10 @@ def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cut
         zero (str): Path to zero accuracy NetCDF grid
         grid_name (str): Name identifier for the grid
         cutline_path (str, optional): Path to cutline shapefile for clipping
+        geotiff_path (str, optional): Path to GeoTIFF export (for visualization/analysis)
         
     Returns:
-        str: Path to the created NTv2 file
+        tuple: Paths to the created NTv2 file and GeoTIFF (ntv2_path, geotiff_path or None)
     """
 
     print(f"Creating NTv2 binary file: {output_path}")
@@ -152,6 +153,18 @@ def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cut
     if vrt is None:
         raise RuntimeError("Failed to create VRT file")
     
+    # Add band descriptions for clarity in downstream products
+    band_names = [
+        "latitude_shift_arcsec",
+        "longitude_shift_arcsec",
+        "latitude_accuracy_arcsec",
+        "longitude_accuracy_arcsec",
+    ]
+    for idx, name in enumerate(band_names, start=1):
+        band = vrt.GetRasterBand(idx)
+        if band:
+            band.SetDescription(name)
+
     print("  DEBUG: VRT file created successfully")
     
     # Convert VRT to NTv2 binary format with metadata
@@ -178,6 +191,7 @@ def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cut
     )
 
     result_filename = output_path
+    geotiff_result = None
     
     print(f"  DEBUG: Base NTv2 file created: {output_path}")
 
@@ -194,6 +208,65 @@ def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cut
         )
         print(f"  DEBUG: Clipped file created: {result_filename}")
     
+    # Optionally create GeoTIFF export for inspection/other tooling
+    if geotiff_path:
+        print(f"  Creating GeoTIFF export: {geotiff_path}")
+
+        # Use the original NetCDF grids to build a 2-band GeoTIFF with
+        # pixel-center registration (Point) compatible with PROJ reading
+        # (pattern used in QazTRF make_tif).
+        dlat_ds = gdal.Open(dlat)
+        dlon_ds = gdal.Open(dlon)
+
+        if dlat_ds is None or dlon_ds is None:
+            raise RuntimeError("Failed to open NetCDF grids for GeoTIFF export")
+
+        x_size = dlat_ds.RasterXSize
+        y_size = dlat_ds.RasterYSize
+
+        gt = dlat_ds.GetGeoTransform()
+        step_x = gt[1]
+        step_y = abs(gt[5])
+        x_min = gt[0]
+        y_max = gt[3]
+
+        geo_transform_point = (x_min - step_x / 2, step_x, 0, y_max + step_y / 2, 0, -step_y)
+
+        driver_tif = gdal.GetDriverByName('GTiff')
+        dst_ds = driver_tif.Create(
+            geotiff_path,
+            x_size,
+            y_size,
+            2,
+            gdal.GDT_Float32,
+            options=["TILED=YES", "COMPRESS=LZW"]
+        )
+
+        dst_ds.SetGeoTransform(geo_transform_point)
+
+        srs = osr.SpatialReference()
+        srs.ImportFromEPSG(4284)  # Pulkovo 1942
+        dst_ds.SetProjection(srs.ExportToWkt())
+
+        dst_ds.GetRasterBand(1).WriteArray(dlat_ds.ReadAsArray())
+        dst_ds.GetRasterBand(1).SetDescription("latitude_shift_arcsec")
+        dst_ds.GetRasterBand(2).WriteArray(dlon_ds.ReadAsArray())
+        dst_ds.GetRasterBand(2).SetDescription("longitude_shift_arcsec")
+
+        dst_ds.SetMetadata({
+            'AREA_OR_POINT': 'Point',
+            'SYSTEM_F': 'Pulkovo 1942',
+            'SYSTEM_T': 'GRS80',
+        })
+
+        dst_ds.FlushCache()
+        dst_ds = None
+
+        dlat_ds = None
+        dlon_ds = None
+
+        geotiff_result = geotiff_path
+
     # Check final file size and existence
     if os.path.exists(result_filename):
         file_size = os.path.getsize(result_filename)
@@ -201,7 +274,11 @@ def create_ntv2_binary(output_path, dlon, dlat, zero, grid_name="FAKE_GRID", cut
     else:
         raise RuntimeError(f"Failed to create NTv2 file: {result_filename}")
 
-    return result_filename
+    if geotiff_result and os.path.exists(geotiff_result):
+        file_size = os.path.getsize(geotiff_result)
+        print(f"  SUCCESS: GeoTIFF file created - {geotiff_result} ({file_size:,} bytes)")
+
+    return result_filename, geotiff_result
 
 def write_ntv2_grid(df, inc, output_path, grid_name="FAKE_GRID"):
     """
@@ -218,7 +295,7 @@ def write_ntv2_grid(df, inc, output_path, grid_name="FAKE_GRID"):
         grid_name (str): Identifier name for the grid
         
     Returns:
-        str: Path to the created NTv2 file
+        tuple: Paths to the created NTv2 and GeoTIFF files
     """
     print(f"Starting NTv2 grid creation process...")
     print(f"  DEBUG: Input data shape: {df.shape}")
@@ -230,12 +307,17 @@ def write_ntv2_grid(df, inc, output_path, grid_name="FAKE_GRID"):
     dlon, dlat, zero = create_netcdf_grids(df, inc)
 
     # Step 2: Convert NetCDF grids to binary NTv2 format
-    print("Step 2: Converting to NTv2 binary format...")
-    result_file = create_ntv2_binary(output_path, dlon, dlat, zero, grid_name)
+    print("Step 2: Converting to NTv2 binary format and GeoTIFF...")
+    geotiff_path = os.path.splitext(output_path)[0] + '.tif'
+    result_file, geotiff_file = create_ntv2_binary(
+        output_path, dlon, dlat, zero, grid_name, geotiff_path=geotiff_path
+    )
     
     print(f"SUCCESS: NTv2 grid creation completed - {result_file}")
+    if geotiff_file:
+        print(f"SUCCESS: GeoTIFF export created - {geotiff_file}")
 
-    return result_file
+    return result_file, geotiff_file
 
 def validate_grid_with_pyproj(df, grid_file_path):
     """
@@ -382,7 +464,7 @@ def make_fake_grid(grid_path, inc=0.05, region=(46.475, 87.325, 40.525, 55.475))
 
     # Create NTv2 grid file
     print(f"Creating NTv2 grid file...")
-    result = write_ntv2_grid(df, inc, grid_path, grid_name="FAKE_GRID_DIRECT")
+    result, geotiff_file = write_ntv2_grid(df, inc, grid_path, grid_name="FAKE_GRID_DIRECT")
 
     # Validate the created grid
     print(f"Validating created grid...")
@@ -398,6 +480,8 @@ def make_fake_grid(grid_path, inc=0.05, region=(46.475, 87.325, 40.525, 55.475))
     print(f"GRID CREATION SUMMARY")
     print(f"=" * 80)
     print(f"Grid file: {result}")
+    if geotiff_file:
+        print(f"GeoTIFF: {geotiff_file}")
     print(f"Validation differences:")
     print(f"  - Longitude: {lon_diff_sec:.3f} arcsecs")
     print(f"  - Latitude: {lat_diff_sec:.3f} arcsecs")
